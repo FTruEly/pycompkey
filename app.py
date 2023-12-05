@@ -32,6 +32,7 @@ def login():
             if user:
                 # 认证成功，返回相应的信息
 
+
                 secret_key = password
 
                 # 构建 payload
@@ -101,6 +102,29 @@ def get_user_info():
 def search():
     # 获取POST请求中的search_text参数
     search_text = request.args.get('search_text')
+
+    # 记录搜索请求
+    try:
+        # 创建游标对象
+        with connection.cursor() as cursor:
+            # 执行插入语句
+            user_id = 1
+            query = f"INSERT INTO search_records (user_id, search_text) VALUES ({user_id},'{search_text}')"
+            cursor.execute(query)
+
+            # 提交事务
+            connection.commit()
+    except pymysql.Error as e:
+        # 捕获 pymysql.Error 异常
+        print(f"Error: {e}")
+        connection.rollback()  # 发生异常时回滚事务
+    except Exception as e:
+        # 捕获其他异常
+        print(f"Unexpected error: {e}")
+        connection.rollback()  # 发生异常时回滚事务
+    finally:
+        pass
+
     seed_id = 0
 
     # 种子关键词是否已经过查找,默认没有
@@ -165,11 +189,9 @@ def search():
         finally:
             pass
     else:
-        print("查找"+search_text+"对应的seed_id失败")
+        # 查找失败，建立新映射
+        print("查找"+search_text+"对应的seed_id失败, 需要在原始数据集中重新筛选")
 
-    # 进行一些处理，这里简单地将搜索文本作为竞争性和mid的示例数据
-    # mid_data = [{"word": search_text, "weight": "0.00023"}]
-    # competitive_data = [{"word": search_text, "competitiveness": "0.00023"}]
 
     # 构建返回的JSON数据
     response_data = {
