@@ -20,8 +20,9 @@ connection = pymysql.connect(**db_config)
 
 @app.route('/users/login', methods=['POST'])
 def login():
-    username = request.args.get('username', None)
-    password = request.args.get('password', None)
+    data=request.get_json()
+    username = data.get('username', None)
+    password = data.get('password', None)
 
     try:
         # 创建数据库游标
@@ -56,8 +57,7 @@ def login():
                 response_data = {'code': 1, 'message': '登录失败'}
                 return jsonify(response_data), 401  # 使用HTTP状态码401表示认证失败
     finally:
-        # 关闭数据库连接
-        print("success")
+        print("success login:"+str(username))
 
 
 @app.route('/users/info', methods=['POST'])
@@ -73,8 +73,9 @@ def get_user_info():
     # 创建游标对象
     cursor = conn.cursor()
 
+    data =request.get_json()
     # 假设已知的 token 值为 'token-admin'
-    token = request.args.get('token')
+    token = data.get('token')
     # 执行查询
     query = "SELECT * FROM user WHERE token = %s"
     cursor.execute(query, (token,))
@@ -101,7 +102,8 @@ def get_user_info():
 @app.route('/search', methods=['POST'])
 def search():
     # 获取POST请求中的search_text参数
-    search_text = request.args.get('search_text')
+    data = request.get_json()
+    search_text = data.get('search_text')
 
     # 记录搜索请求
     try:
@@ -438,3 +440,6 @@ def search():
 # 主函数
 if __name__ == '__main__':
     app.run()
+
+
+# 测试一下branch功能
