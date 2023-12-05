@@ -101,9 +101,50 @@ def get_user_info():
 def search():
     # 获取POST请求中的search_text参数
     search_text = request.args.get('search_text')
+    seed_id = 0
+    if_seed_id_found = False
+
+    # 查找关键词的seed_id
+    try:
+        with connection.cursor() as cursor:
+            # 执行查询，选择seed_id列
+            sql = "SELECT seed_id FROM seedkeys WHERE seed_word = %s"
+            cursor.execute(sql, (search_text,))
+            result = cursor.fetchone()
+
+            if result:
+                seed_id = result['seed_id']
+                if_seed_id_found = True
+            else:
+                # print("查找失败")
+                pass
+    finally:
+        # print("success")
+        pass
+
+    mid_data = ''
+    # 若查找到对应的seed_id，则执行进一步查询,提取数据库已有信息
+    if if_seed_id_found:
+        print("查询"+search_text+"对应的seed_id成功，seed_id为"+str(seed_id))
+        try:
+            with connection.cursor() as cursor:
+                # 执行查询，选择mid_word和weight列
+                sql = "SELECT mid_word, weight FROM midkeys WHERE seed_id = %s"
+                cursor.execute(sql, (seed_id,))
+                results = cursor.fetchall()
+
+                # 将查询结果转换为适合你的数据结构
+                mid_data = [{"word": row["mid_word"], "weight": row["weight"]} for row in results]
+
+                print(mid_data)
+        finally:
+            pass
+            # print("success")
+    else:
+        print("查找"+search_text+"对应的seed_id失败")
 
     # 进行一些处理，这里简单地将搜索文本作为竞争性和mid的示例数据
-    mid_data = [{"word": search_text, "weight": "0.00023"}]
+    # mid_data = [{"word": search_text, "weight": "0.00023"}]
     competitive_data = [{"word": search_text, "weight": "0.00023"}]
 
     # 构建返回的JSON数据
