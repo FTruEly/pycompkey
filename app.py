@@ -34,7 +34,6 @@ def login():
             if user:
                 # 认证成功，返回相应的信息
 
-
                 secret_key = password
 
                 # 构建 payload
@@ -63,7 +62,6 @@ def login():
 
 @app.route('/users/info', methods=['POST'])
 def get_user_info():
-
     # 连接 MySQL 数据库
     conn = pymysql.connect(
         host='localhost',  # 修改为你的 MySQL 主机名
@@ -154,7 +152,7 @@ def search():
     competitive_data = ''
     # 若查找到对应的seed_id，则执行进一步查询,提取数据库已有信息
     if if_seed_id_found:
-        print("查询"+search_text+"对应的seed_id成功，seed_id为"+str(seed_id))
+        print("查询" + search_text + "对应的seed_id成功，seed_id为" + str(seed_id))
 
         # 查询中介关键词
         try:
@@ -182,7 +180,8 @@ def search():
                 results = cursor.fetchall()
 
                 # 查询结果转换
-                competitive_data = [{"comp_word": row["comp_word"], "competitiveness": row["competitiveness"]} for row in results]
+                competitive_data = [{"comp_word": row["comp_word"], "competitiveness": row["competitiveness"]} for row
+                                    in results]
                 print(competitive_data)
 
         except Exception as e:
@@ -192,7 +191,25 @@ def search():
             pass
     else:
         # 查找失败，后端重新计算该词竞争度
-        print("查找"+search_text+"对应的seed_id失败, 需要在原始数据集中重新计算")
+        print("查找" + search_text + "对应的seed_id失败, 需要在原始数据集中重新计算")
+
+        midid_list = []  # mid_id列表
+        mid_id = 0
+
+        try:
+            with connection.cursor() as cursor:
+                # 向seed_keys中插入未搜索过的数据
+                query = "INSERT INTO seedkeys (seed_word) VALUES (%s)"
+                cursor.execute(query, (search_text,))
+
+                # 获取自增的 seed_id
+                seed_id = cursor.lastrowid
+
+                # 提交
+                connection.commit()
+        finally:
+            pass
+            # print("success")
 
         # 读取原始文件
 
@@ -202,9 +219,6 @@ def search():
         # 构建相对路径
         finaloutput_file_path = current_directory / './data/finaldata.txt'
         cut_finished_file_path = current_directory / './data/cutfinisheddata.txt'
-
-        # finaloutput_file_path = r'./data/finaldata.txt'
-        # cut_finished_file_path = r'./data/cutfinisheddata.txt'
 
         keyword = search_text
 
@@ -261,6 +275,23 @@ def search():
                 output_result.write(text)
                 midWordList.append(word)
 
+                # 向midkeys插入mid_word和weight
+                try:
+                    with connection.cursor() as cursor:
+                        # 向midkeys中插入数据
+                        query2 = "INSERT INTO midkeys (seed_id, mid_word, weight) VALUES (%s,%s,%s)"
+                        cursor.execute(query2, (seed_id, word, count / a1,))
+
+                        # 获取自增的 mid_id
+                        mid_id = cursor.lastrowid
+                        midid_list.append(mid_id)
+
+                        # 提交事务
+                        connection.commit()
+                finally:
+                    pass
+                    # print("success")
+
         competeWordList = []
 
         with open(finaloutput_file_path, "r", encoding="ANSI") as input_file, \
@@ -298,7 +329,7 @@ def search():
                 print("[竞争]", f"{word}: {count}")
                 competeWordList.append(word)
 
-        outComp = []
+        # outComp = []
         comp = 0  # 竞争度
         a = 0  # 中介关键词搜索次数
         ka = 0  # 竞争关键词与中介关键词联合搜索次数
@@ -335,10 +366,60 @@ def search():
             sorted_comp_scores = sorted(comp_scores.items(), key=lambda x: x[1], reverse=True)
 
             # Print the results
+            i = 0  # 循环控制，访问midid_list
             for compWord, comp in sorted_comp_scores:
-                outComp.append((compWord,))
+                # 向compkeys中插入数据
+                try:
+                    with connection.cursor() as cursor:
+                        query1 = "INSERT INTO compkeys (mid_id, seed_id, comp_word, competitiveness) VALUES (%s, %s, %s, %s)"
+                        cursor.execute(query1, (midid_list[i], seed_id, compWord, comp))
+
+                        # 提交
+                        connection.commit()
+                finally:
+                    pass
+                    # print("success")
+                # outComp.append((compWord,))
                 print(f"{compWord} [竞争度]: {comp}")
 
+                i += 1  # 下一次循环
+
+    # 再次执行数据库查询操作
+    try:
+        with connection.cursor() as cursor:
+            # 执行查询，选择mid_word和weight列
+            sql = "SELECT mid_word, weight FROM midkeys WHERE seed_id = %s"
+            cursor.execute(sql, (seed_id,))
+            results = cursor.fetchall()
+
+            # 查询结果转换
+            mid_data = [{"word": row["mid_word"], "weight": row["weight"]} for row in results]
+            print(mid_data)
+    finally:
+        pass
+        # print("success")
+
+    # 查询竞争关键词
+    try:
+        with connection.cursor() as cursor:
+            # 执行查询语句
+            sql1 = "SELECT comp_word, competitiveness FROM compkeys WHERE seed_id = %s"
+            cursor.execute(sql1, args=seed_id)
+
+            # 获取查询结果
+            results = cursor.fetchall()
+
+            # 查询结果转换
+            competitive_data = [{"comp_word": row["comp_word"], "competitiveness": row["competitiveness"]} for
+                                row
+                                in results]
+            print(competitive_data)
+
+    except Exception as e:
+        return jsonify({'error': str(e)})
+
+    finally:
+        pass
 
     # 构建返回的JSON数据
     response_data = {
