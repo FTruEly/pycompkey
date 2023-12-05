@@ -2,6 +2,8 @@ from flask import Flask, request, jsonify
 import pymysql
 import datetime
 import jwt
+from collections import Counter
+from pathlib import Path
 
 app = Flask(__name__)
 db_config = {
@@ -189,8 +191,153 @@ def search():
         finally:
             pass
     else:
-        # 查找失败，建立新映射
-        print("查找"+search_text+"对应的seed_id失败, 需要在原始数据集中重新筛选")
+        # 查找失败，后端重新计算该词竞争度
+        print("查找"+search_text+"对应的seed_id失败, 需要在原始数据集中重新计算")
+
+        # 读取原始文件
+
+        # 获取当前脚本所在的目录
+        current_directory = Path(__file__).resolve().parent
+
+        # 构建相对路径
+        finaloutput_file_path = current_directory / './data/finaldata.txt'
+        cut_finished_file_path = current_directory / './data/cutfinisheddata.txt'
+
+        # finaloutput_file_path = r'./data/finaldata.txt'
+        # cut_finished_file_path = r'./data/cutfinisheddata.txt'
+
+        keyword = search_text
+
+        with open(finaloutput_file_path, 'r', encoding='ANSI', errors='ignore') as input_word, open(
+                cut_finished_file_path, 'w',
+                encoding='ANSI',
+                errors='ignore') as output_word:
+
+            for line in input_word:
+                # 检查关键词是否存在于当前行中
+                if keyword in line:
+                    # 如果包含关键词，将行写入cutfinisheddata.txt
+                    output_word.write(line)
+        print(f"包含关键词 '{keyword}' 的搜索语句已保存到cutfinisheddata.txt 文件。")
+
+        mid_keyword = current_directory / f"./data/'{keyword}'MidWord.txt"
+        # mid_keyword = f"C:\\Users\\28046\\Desktop\\Data\\'{keyword}'MidWord.txt"
+
+        midWordList = []  # 中介关键词列表
+        weightList = []  # 权重列表
+        a1 = 0  # 所有中介关键词搜索次数
+
+        with open(cut_finished_file_path, 'r', encoding='ANSI', errors='ignore') as input_result, open(
+                mid_keyword, 'w',
+                encoding='ANSI',
+                errors='ignore') as output_result:
+            data = input_result.readlines()
+
+            word_counter = Counter()
+
+            for sentence in data:
+                if keyword in sentence:
+                    words = sentence.split()  # 使用空格分割单词
+                    for word in words:
+                        if (
+                                word != keyword  # 单词不是keyword
+                                and keyword not in word  # keyword不作为单词组成部分
+                                and len(word) > 1  # 词语长度大于1（同时可以排除特殊符号）
+                        ):
+                            word_counter[word] += 1
+
+            top_words = word_counter.most_common(6)  # 6为中介关键词词频最高的前6个
+
+            for word, count in top_words:
+                a1 += count
+
+            for word, count in top_words:
+                weightList.append(count / a1)
+
+                print(f"[中介]{word}: {count}, 权重：", count / a1)
+
+                text = f"[中介]{word}: {count}, 权重：" + str(count / a1) + "\n"
+
+                output_result.write(text)
+                midWordList.append(word)
+
+        competeWordList = []
+
+        with open(finaloutput_file_path, "r", encoding="ANSI") as input_file, \
+                open(current_directory / './data/MidWordRelated.txt', "w+", encoding="ANSI") as output_file:
+            # 逐行读取
+            for line in input_file:
+                # 判断当前行是否包含 midWordList 中的任何一个词
+                if any(word in line for word in midWordList):
+                    # 如果包含至少一个词，将当前行写入 MidWordRalated.txt
+                    output_file.write(line)
+
+            print("包含'", keyword, "'的中介关键词的所有搜索语句选择完成, 结果保存在MidWordRelated.txt中")
+
+        with open(current_directory / './data/MidWordRelated.txt', "r", encoding="ANSI") as output_file:
+            word_counter = Counter()
+
+            for line in output_file:
+                # 分割每一行的文本为单词
+                words = line.split()
+
+                # 使用 Counter 统计词频，排除关键词
+                for word in words:
+                    if (
+                            word != keyword  # 单词不是keyword
+                            and word not in midWordList
+                            and len(word) > 1  # 词语长度大于1（同时可以排除特殊符号）
+                    ):
+                        word_counter[word] += 1
+
+            # 获取频率最高的6个词
+            top_words = word_counter.most_common(6)
+
+            # 打印或保存结果
+            for word, count in top_words:
+                print("[竞争]", f"{word}: {count}")
+                competeWordList.append(word)
+
+        outComp = []
+        comp = 0  # 竞争度
+        a = 0  # 中介关键词搜索次数
+        ka = 0  # 竞争关键词与中介关键词联合搜索次数
+        sa = 0  # 种子关键词与中介关键词联合搜索次数
+
+        with open(current_directory / './data/MidWordRelated.txt', "r", encoding="ANSI") as read_file:
+            content = read_file.readlines()
+            comp_scores = {}
+
+            # 对每个竞争词单独算一遍竞争度
+            for compWord in competeWordList:
+                comp = 0
+                weightCont = 0  # 权重计数
+
+                #  按midWord权重计算竞争度
+                for midWord in midWordList:
+                    a = 0
+                    sa = 0
+                    ka = 0
+                    # 遍历每行文本
+                    for line in content:
+                        if midWord in line:
+                            a += 1
+
+                        if compWord in line and midWord in line:
+                            ka += 1
+
+                        if keyword in line and midWord in line:
+                            sa += 1
+
+                    comp += weightList[weightCont] * (ka / (abs(a - sa) + 1))  # 按权重累加
+                comp_scores[compWord] = comp
+            # Sort the competition scores in descending order
+            sorted_comp_scores = sorted(comp_scores.items(), key=lambda x: x[1], reverse=True)
+
+            # Print the results
+            for compWord, comp in sorted_comp_scores:
+                outComp.append((compWord,))
+                print(f"{compWord} [竞争度]: {comp}")
 
 
     # 构建返回的JSON数据
