@@ -102,6 +102,8 @@ def search():
     # 获取POST请求中的search_text参数
     search_text = request.args.get('search_text')
     seed_id = 0
+
+    # 种子关键词是否已经过查找,默认没有
     if_seed_id_found = False
 
     # 查找关键词的seed_id
@@ -123,9 +125,12 @@ def search():
         pass
 
     mid_data = ''
+    competitive_data = ''
     # 若查找到对应的seed_id，则执行进一步查询,提取数据库已有信息
     if if_seed_id_found:
         print("查询"+search_text+"对应的seed_id成功，seed_id为"+str(seed_id))
+
+        # 查询中介关键词
         try:
             with connection.cursor() as cursor:
                 # 执行查询，选择mid_word和weight列
@@ -133,19 +138,38 @@ def search():
                 cursor.execute(sql, (seed_id,))
                 results = cursor.fetchall()
 
-                # 将查询结果转换为适合你的数据结构
+                # 查询结果转换
                 mid_data = [{"word": row["mid_word"], "weight": row["weight"]} for row in results]
-
                 print(mid_data)
         finally:
             pass
             # print("success")
+
+        # 查询竞争关键词
+        try:
+            with connection.cursor() as cursor:
+                # 执行查询语句
+                sql1 = "SELECT comp_word, competitiveness FROM compkeys WHERE seed_id = %s"
+                cursor.execute(sql1, args=seed_id)
+
+                # 获取查询结果
+                results = cursor.fetchall()
+
+                # 查询结果转换
+                competitive_data = [{"comp_word": row["comp_word"], "competitiveness": row["competitiveness"]} for row in results]
+                print(competitive_data)
+
+        except Exception as e:
+            return jsonify({'error': str(e)})
+
+        finally:
+            pass
     else:
         print("查找"+search_text+"对应的seed_id失败")
 
     # 进行一些处理，这里简单地将搜索文本作为竞争性和mid的示例数据
     # mid_data = [{"word": search_text, "weight": "0.00023"}]
-    competitive_data = [{"word": search_text, "weight": "0.00023"}]
+    # competitive_data = [{"word": search_text, "competitiveness": "0.00023"}]
 
     # 构建返回的JSON数据
     response_data = {
