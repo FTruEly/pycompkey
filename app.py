@@ -420,7 +420,7 @@ def search():
     except Exception as e:
         return jsonify({'error': str(e)})
 
-    finally:
+
         pass
 
     # 构建返回的JSON数据
@@ -434,6 +434,52 @@ def search():
     }
 
     # 返回JSON响应
+    return jsonify(response_data)
+
+
+def get_top_search_words(limit=3):
+    # connection = None
+    try:
+        # 连接数据库
+        # connection = pymysql.connect(**db_config)
+
+        # 创建游标对象
+        with connection.cursor() as cursor:
+            # 执行 SQL 查询
+            query = f"SELECT search_text, COUNT(*) as count FROM search_records GROUP BY search_text ORDER BY count DESC LIMIT {limit}"
+            result = cursor.execute(query)
+
+            # 获取查询结果
+            # mid_data = [{"word": row["mid_word"], "weight": row["weight"]} for row in results]
+            top_search_words = [{"search_text": row["search_text"], "count": row["count"]} for row in cursor.fetchall()]
+
+            return top_search_words
+    except pymysql.Error as e:
+        # 捕获 pymysql.Error 异常
+        print(f"Error: {e}")
+    except Exception as e:
+        # 捕获其他异常
+        print(f"Unexpected error: {e}")
+    finally:
+        # 关闭数据库连接
+        # if connection:
+        #     connection.close()
+        pass
+
+
+@app.route('/topwords', methods=['GET'])
+def top_search_words():
+    # 获取前3个搜索词
+    top_words = get_top_search_words()
+
+    # 构建返回的 JSON 数据
+    response_data = {
+        "data": top_words,
+        "code": 0,
+        "message": "获取前3个热词成功"
+    }
+
+    # 返回 JSON 响应
     return jsonify(response_data)
 
 
