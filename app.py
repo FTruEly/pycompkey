@@ -4,6 +4,7 @@ import datetime
 import jwt
 from collections import Counter
 from pathlib import Path
+from pymysqlpool.pool import Pool
 
 app = Flask(__name__)
 db_config = {
@@ -14,16 +15,20 @@ db_config = {
     'cursorclass': pymysql.cursors.DictCursor
 }
 
+pool = Pool(**db_config)
+
+
 # 创建MySQL连接
-connection = pymysql.connect(**db_config)
+# connection = pymysql.connect(**db_config)
 
 
 @app.route('/users/login', methods=['POST'])
 def login():
-    data=request.get_json()
+    data = request.get_json()
     username = data.get('username', None)
     password = data.get('password', None)
 
+    connection = pool.get_conn()
     try:
         # 创建数据库游标
         with connection.cursor() as cursor:
@@ -57,7 +62,9 @@ def login():
                 response_data = {'code': 1, 'message': '登录失败'}
                 return jsonify(response_data), 401  # 使用HTTP状态码401表示认证失败
     finally:
-        print("success login:"+str(username))
+        # 关闭数据库连接
+        pool.release(connection)
+        print("success")
 
 
 @app.route('/users/info', methods=['POST'])
@@ -72,10 +79,9 @@ def get_user_info():
 
     # 创建游标对象
     cursor = conn.cursor()
-
-    data =request.get_json()
+    data = request.get_json()
     # 假设已知的 token 值为 'token-admin'
-    token = data.get('token')
+    token = data.get('token', None)
     # 执行查询
     query = "SELECT * FROM user WHERE token = %s"
     cursor.execute(query, (token,))
@@ -103,10 +109,12 @@ def get_user_info():
 def search():
     # 获取POST请求中的search_text参数
     data = request.get_json()
-    search_text = data.get('search_text')
-
+    search_text = data.get('search_text', None)
+    if not search_text:
+        return jsonify({"code": 0, "message": "缺少 search_text 参数", "data": {}})
     # 记录搜索请求
     try:
+        connection = pool.get_conn()
         # 创建游标对象
         with connection.cursor() as cursor:
             # 执行插入语句
@@ -420,8 +428,8 @@ def search():
     except Exception as e:
         return jsonify({'error': str(e)})
 
-
-        pass
+    finally:
+        pool.release(connection)
 
     # 构建返回的JSON数据
     response_data = {
@@ -442,7 +450,7 @@ def get_top_search_words(limit=3):
     try:
         # 连接数据库
         # connection = pymysql.connect(**db_config)
-
+        connection = pool.get_conn()
         # 创建游标对象
         with connection.cursor() as cursor:
             # 执行 SQL 查询
@@ -464,7 +472,7 @@ def get_top_search_words(limit=3):
         # 关闭数据库连接
         # if connection:
         #     connection.close()
-        pass
+        pool.release(connection)
 
 
 @app.route('/topwords', methods=['GET'])
@@ -484,5 +492,92 @@ def top_search_words():
 
 
 # 主函数
+@app.route('/rate', methods=['POST'])
+def rate():
+    data = request.get_json()
+    search_text = data.get('search_text', None)
+    rate = data.get('rate', None)
+    mid_word = data.get('mid_word', None)
+    comp_word = data.get('comp_word', None)
+
+    if not search_text or not rate or (not mid_word and not comp_word):
+        return jsonify({"code": 0, "message": "缺少必要的参数", "data": {}})
+
+    try:
+        connection = pool.get_conn()
+        with connection.cursor() as cursor:
+            # 获取seed_id
+            sql_seed = "SELECT seed_id FROM seedkeys WHERE seed_word = %s"
+            cursor.execute(sql_seed, (search_text,))
+            seed = cursor.fetchone()
+            if not seed:
+                return jsonify({"code": 1, "message": "未找到对应的seed_id"}), 400
+            seed_id = seed['seed_id']
+
+            # 根据mid_word或comp_word获取mid_id或comp_id
+            if mid_word:
+                sql_mid = "SELECT mid_id FROM midkeys WHERE seed_id = %s AND mid_word = %s"
+                cursor.execute(sql_mid, (seed_id, mid_word,))
+                mid = cursor.fetchone()
+                if not mid:
+                    return jsonify({"code": 1, "message": "未找到对应的mid_id"}), 400
+                mid_id = mid['mid_id']
+
+                # 插入rate
+                sql_rate = "INSERT INTO rate (mid_id, rate, seed_id, gmt_rate) VALUES (%s, %s, %s, NOW())"
+                cursor.execute(sql_rate, (mid_id, rate, seed_id))
+            else:
+                sql_comp = "SELECT comp_id FROM compkeys WHERE seed_id = %s AND comp_word = %s"
+                cursor.execute(sql_comp, (seed_id, comp_word,))
+                comp = cursor.fetchone()
+                if not comp:
+                    return jsonify({"code": 1, "message": "未找到对应的comp_id"}), 400
+                comp_id = comp['comp_id']
+
+                # 插入rate
+                sql_rate = "INSERT INTO rate (comp_id, rate, seed_id, gmt_rate) VALUES (%s, %s, %s, NOW())"
+                cursor.execute(sql_rate, (comp_id, rate, seed_id))
+
+            connection.commit()
+            return jsonify({"code": 0, "message": "评分成功添加"}), 200
+    except Exception as e:
+        return jsonify({"code": 1, "message": str(e)}), 500
+    finally:
+        pool.release(connection)
+
+
+@app.route('/record', methods=['POST'])
+def record():
+    data = request.get_json()
+    search_text = data.get('search_text', None)
+
+    if not search_text:
+        return jsonify({"code": 0, "message": "缺少 search_text 参数", "data": {}})
+
+    try:
+        connection = pool.get_conn()
+        with connection.cursor() as cursor:
+            sql = """
+            SELECT DATE_FORMAT(gmt_search, '%%Y-%%m-%%d %%H') as hour, COUNT(*) as count
+            FROM search_records
+            WHERE search_text = %s
+            GROUP BY hour
+            ORDER BY hour
+            """
+            cursor.execute(sql, (search_text,))
+            records = cursor.fetchall()
+
+            response_data = {
+                'data': records,
+                'code': 0,
+                'message': '查询成功'
+            }
+            return jsonify(response_data)
+    except Exception as e:
+        return jsonify({"code": 1, "message": str(e)}), 500
+    finally:
+        pool.release(connection)
+
+
 if __name__ == '__main__':
     app.run()
